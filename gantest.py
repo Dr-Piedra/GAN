@@ -1,7 +1,7 @@
 import tensorflow as tf
 from tensorflow import keras as k
-import tensorflow_datasets as tfds
-from keras.layers import Dense, Dropout
+#import tensorflow_datasets as tfds
+#from keras.layers import Dense, Dropout
 import numpy as np
 
 (X,Y_),(x,y_)=k.datasets.mnist.load_data()
@@ -9,6 +9,8 @@ shape = (28,28,1)
 img_width, img_height, img_channels = 28,28,1
 
 X=X.reshape(60000,28,28,1)
+X = X.astype('float32')
+X = X/255.0
 Y_=k.utils.to_categorical(Y_,10)
 #def discriminator(shape = (28,28,1))
 #	model.Sequential(
@@ -18,11 +20,11 @@ L1 =  k.layers.Conv2D(64,kernel_size=(3,3), strides = (2,2), padding='same', act
 L2 =  k.layers.Conv2D(64,kernel_size=(3,3), strides = (2,2), padding='same', activation ="relu")(L1)
 L3 =  k.layers.Conv2D(64,kernel_size=(3,3), strides = (2,2), padding='same', activation ="relu")(L2)
 L4 =  k.layers.Flatten()(L3)
-End = k.layers.Dense(2, activation='softmax')(L4)
+End = k.layers.Dense(1, activation='sigmoid')(L4)
 
 
 discriminator = k.models.Model(inputs = [Image_input], outputs = [End])
-discriminator.compile(loss = "categorical_crossentropy", optimizer = "adam", metrics = ["accuracy"])
+discriminator.compile(loss = "binary_crossentropy", optimizer = "adam", metrics = ["accuracy"])
 discriminator.summary()
 
 
@@ -54,25 +56,61 @@ def discriminator_loss(real_output, fake_output):
 def generator_loss(fake_output):
 	return cross_entropy(tf.ones_like(fake_output), fake_output)
 
-generator_optimizer = k.optimizers.Adam(1e-4)
-discriminator_optimizer = k.optimizers.Adam(1e-4)
+#generator_optimizer = k.optimizers.Adam(1e-4)
+#discriminator_optimizer = k.optimizers.Adam(1e-4)
 
-for i in range(2000):
+def gan(g_model, d_model):
+	# make weights in the discriminator not trainable
+	d_model.trainable = False
+	# connect them
+	model = k.Sequential()
+	# add generator
+	model.add(g_model)
+	# add the discriminator
+	model.add(d_model)
+	# compile model
+	opt = k.optimizers.Adam(lr=0.0002, beta_1=0.5)
+	model.compile(loss='binary_crossentropy', optimizer=opt)
+	return model
+
+
+
+Gan = gan(generator,discriminator)
+Gan.summary()
+
+y_false = np.array([0])
+y_true = np.array([1])
+
+j=500
+for i in range(j):
 	print('step ', i)
-	with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
-		noise = tf.random.normal([1,1,100])		
-		generated_image = generator(noise,training=True)
-		real_output = discriminator(X[i].reshape(1,28,28), training = True)
-		fake_output = discriminator(generated_image, training=True)
-		
-		gen_loss = generator_loss(fake_output)
-		disc_loss = discriminator_loss(real_output, fake_output)
-
-	gradients_of_generator = gen_tape.gradient(gen_loss, generator.trainable_variables)
-	gradients_of_discriminator = disc_tape.gradient(disc_loss, discriminator.trainable_variables)
+	data = X[i].reshape(1,28,28,1)	
+	noise = tf.random.normal([1,1,100])		
 	
-	generator_optimizer.apply_gradients(zip(gradients_of_generator, generator.trainable_variables))
-	discriminator_optimizer.apply_gradients(zip(gradients_of_generator, generator.trainable_variables))
+	generated_image = generator.predict_on_batch(noise)
+	
+	# generated_image = generator(noise,training=True)
+
+	real_output = data
+	d_loss,_ = discriminator.train_on_batch(data,y=y_true)
+	fake_output = generated_image
+	discriminator.train_on_batch(generated_image)	
+	# real_output = discriminator(X[i].reshape(1,28,28,1), training = True)
+	# fake_output = discriminator(generated_image, training=True)
+	g_loss = Gan.train_on_batch(noise, y_true)
+	print('%d/%d, d=%.3f, g=%.3f' % (i+1, j+1, d_loss, g_loss))
+
+	if i % 20 == 0:
+		g_model.save('model_%i.h5'%i)
+	
+	# gen_loss = generator_loss(fake_output)
+	# disc_loss = discriminator_loss(real_output, fake_output)
+
+	# gradients_of_generator = gen_tape.gradient(gen_loss, generator.trainable_variables)
+	# gradients_of_discriminator = disc_tape.gradient(disc_loss, discriminator.trainable_variables)
+	
+	# generator_optimizer.apply_gradients(zip(gradients_of_generator, generator.trainable_variables))
+	# discriminator_optimizer.apply_gradients(zip(gradients_of_generator, generator.trainable_variables))
 
 	
 
